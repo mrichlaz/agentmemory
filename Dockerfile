@@ -6,12 +6,9 @@ RUN apt-get update && apt-get install -y \
   git curl ca-certificates jq \
   && rm -rf /var/lib/apt/lists/*
 
-# ── Install iii binary ────────────────────────────────────────
 RUN curl -fsSL https://install.iii.dev/iii/main/install.sh | sh
-# Make it available system-wide
 RUN cp ~/.local/bin/iii /usr/local/bin/iii || cp /root/.local/bin/iii /usr/local/bin/iii
 
-# ── Clone and patch agentmemory ───────────────────────────────
 RUN git clone https://github.com/rohitg00/agentmemory.git .
 RUN node - <<'NODE'
 const fs = require('fs');
@@ -105,6 +102,75 @@ text = text.replace(
 '  server.listen(port, "127.0.0.1", () => {\n    console.log(`[agentmemory] Viewer: http://localhost:${port}`);\n  });\n',
 '  server.listen(port, "0.0.0.0", () => {\n    console.log(`[agentmemory] Viewer: http://0.0.0.0:${port}`);\n  });\n'
 );
+text = text.replace(
+`    try {
+      await proxyToRestApi(resolvedRestPort, pathname, qs, method, req, res, secret);
+    } catch (err) {
+`,
+`    try {
+      if (pathname === '/viewer/ws') {
+        json(res, 426, { error: 'upgrade required' }, req);
+        return;
+      }
+      const proxiedPath = pathname.startsWith('/viewer/api/')
+        ? '/agentmemory/' + pathname.slice('/viewer/api/'.length)
+        : pathname;
+      await proxyToRestApi(resolvedRestPort, proxiedPath, qs, method, req, res, secret);
+    } catch (err) {
+`
+);
+text = text.replace(
+`  server.on("error", (err: NodeJS.ErrnoException) => {
+`,
+`  server.on('upgrade', async (req, socket) => {
+    const raw = req.url || '/';
+    const qIdx = raw.indexOf('?');
+    const pathname = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+    const qs = qIdx >= 0 ? raw.slice(qIdx + 1) : '';
+    const targetPath = pathname === '/viewer/ws' ? '/' : null;
+    if (!targetPath) {
+      socket.destroy();
+      return;
+    }
+    try {
+      const net = await import('node:net');
+      const upstreamPort = resolvedRestPort + 1;
+      const upstream = net.connect(upstreamPort, '127.0.0.1', () => {
+        const lines = [
+          'GET ' + targetPath + (qs ? '?' + qs : '') + ' HTTP/1.1',
+          'Host: 127.0.0.1:' + upstreamPort,
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+        ];
+        const pass = [
+          'sec-websocket-key',
+          'sec-websocket-version',
+          'sec-websocket-protocol',
+          'sec-websocket-extensions',
+          'origin',
+          'pragma',
+          'cache-control',
+          'user-agent'
+        ];
+        for (const key of pass) {
+          const val = req.headers[key];
+          if (typeof val === 'string') lines.push(key + ': ' + val);
+        }
+        lines.push('', '');
+        upstream.write(lines.join('\\r\\n'));
+      });
+      upstream.on('error', () => socket.destroy());
+      socket.on('error', () => upstream.destroy());
+      upstream.pipe(socket);
+      socket.pipe(upstream);
+    } catch {
+      socket.destroy();
+    }
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+`
+);
 fs.writeFileSync('/app/src/viewer/server.ts', text);
 
 text = fs.readFileSync('/app/src/viewer/index.html', 'utf8');
@@ -120,10 +186,51 @@ text = text.replace(
     var WS_DIRECT_URL = wsProto + '//' + window.location.hostname + ':' + wsPort + '/stream/mem-live/viewer';
 `,
 `    var params = new URLSearchParams(window.location.search);
-    var REST = window.location.origin;
+    var VIEWER_BASE = (function() {
+      var path = window.location.pathname || '/viewer';
+      if (path === '/' || path === '') return '/viewer';
+      return path.replace(/\/+$/, '');
+    })();
+    var REST = window.location.origin + VIEWER_BASE;
     var wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var WS_URL = wsProto + '//' + window.location.host;
-    var WS_DIRECT_URL = wsProto + '//' + window.location.host + '/stream/mem-live/viewer';
+    var WS_URL = wsProto + '//' + window.location.host + VIEWER_BASE + '/ws';
+    var WS_DIRECT_URL = WS_URL;
+`
+);
+text = text.replace(
+`        var url = REST + '/agentmemory/' + path;
+`,
+`        var url = REST + '/api/' + path;
+`
+);
+text = text.replace(
+`          if (!ws.__direct) {
+            ws.send(JSON.stringify({
+              type: 'join',
+              data: {
+                subscriptionId: 'viewer-' + Date.now(),
+                streamName: 'mem-live',
+                groupId: 'viewer'
+              }
+            }));
+          }
+`,
+`          ws.send(JSON.stringify({
+            type: 'join',
+            data: {
+              subscriptionId: 'viewer-' + Date.now(),
+              streamName: 'mem-live',
+              groupId: 'viewer'
+            }
+          }));
+`
+);
+text = text.replace(
+`    function connectWs() {
+      startPolling();
+      return;
+`,
+`    function connectWs() {
 `
 );
 fs.writeFileSync('/app/src/viewer/index.html', text);
