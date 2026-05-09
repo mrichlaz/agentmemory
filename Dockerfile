@@ -130,6 +130,16 @@ fs.writeFileSync('/app/src/viewer/index.html', text);
 
 text = fs.readFileSync('/app/iii-config.yaml', 'utf8');
 text = text.replace(/host: 127\.0\.0\.1/g, 'host: 0.0.0.0');
+text = text.replace(
+`  - name: iii-exec
+    config:
+      watch:
+        - src/**/*.ts
+      exec:
+        - node dist/index.mjs
+`,
+''
+);
 fs.writeFileSync('/app/iii-config.yaml', text);
 NODE
 RUN npm install
