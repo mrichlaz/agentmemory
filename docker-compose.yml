@@ -1,0 +1,34 @@
+services:
+  agentmemory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3111:3111"
+      - "3113:3113"
+    env_file:
+      - .env
+    environment:
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      OPENROUTER_MODEL: "${COMPRESSION_MODEL}"
+      OPENROUTER_BASE_URL: "${OPENAI_BASE_URL}/chat/completions"
+      COMPRESSION_MODEL: "${COMPRESSION_MODEL}"
+      EMBEDDING_PROVIDER: "${EMBEDDING_PROVIDER}"
+      AGENTMEMORY_SECRET: "${AGENTMEMORY_SECRET}"
+      AGENTMEMORY_ALLOW_AGENT_SDK: "false"
+      AGENTMEMORY_AUTO_COMPRESS: "true"
+      AGENTMEMORY_COMPRESS: "true"
+      AGENTMEMORY_SLOTS: "${AGENTMEMORY_SLOTS}"
+      AGENTMEMORY_REFLECT: "${AGENTMEMORY_REFLECT}"
+      AGENTMEMORY_INJECT_CONTEXT: "${AGENTMEMORY_INJECT_CONTEXT}"
+      GRAPH_EXTRACTION_ENABLED: "${GRAPH_EXTRACTION_ENABLED}"
+      CONSOLIDATION_ENABLED: "${CONSOLIDATION_ENABLED}"
+      NODE_ENV: production
+    volumes:
+      - agentmemory-data:/app/data
+
+volumes:
+  agentmemory-data:
