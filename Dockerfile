@@ -102,6 +102,8 @@ text = text.replace(
 '  server.listen(port, "127.0.0.1", () => {\n    console.log(`[agentmemory] Viewer: http://localhost:${port}`);\n  });\n',
 '  server.listen(port, "0.0.0.0", () => {\n    console.log(`[agentmemory] Viewer: http://0.0.0.0:${port}`);\n  });\n'
 );
+text = text.replaceAll('127.0.0.1', '0.0.0.0');
+text = text.replaceAll('http://localhost:${port}', 'http://0.0.0.0:${port}');
 text = text.replace(
 `    try {
       await proxyToRestApi(resolvedRestPort, pathname, qs, method, req, res, secret);
@@ -119,6 +121,103 @@ text = text.replace(
     } catch (err) {
 `
 );
+text = text.replace(/await proxyToRestApi\(resolvedRestPort, pathname, qs, method, req, res, secret\);/g,
+`if (pathname === '/viewer/ws') {
+        json(res, 426, { error: 'upgrade required' }, req);
+        return;
+      }
+      const proxiedPath = pathname.startsWith('/viewer/api/')
+        ? '/agentmemory/' + pathname.slice('/viewer/api/'.length)
+        : pathname;
+      await proxyToRestApi(resolvedRestPort, proxiedPath, qs, method, req, res, secret);`
+);
+fs.writeFileSync('/app/src/viewer/server.ts', text);
+
+text = fs.readFileSync('/app/src/triggers/api.ts', 'utf8');
+text = text.replace(
+`function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+`,
+`function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeHookType(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[\s-]+/g, "_")
+    .toLowerCase();
+}
+`
+);
+text = text.replace(
+`      const payload: HookPayload = {
+        hookType: hookType as HookPayload["hookType"],
+        sessionId,
+        project,
+        cwd,
+        timestamp,
+        data: body.data,
+      };
+`,
+`      const rawData =
+        body.data && typeof body.data === "object"
+          ? { ...(body.data as Record<string, unknown>) }
+          : body.data;
+      if (rawData && typeof rawData === "object") {
+        const d = rawData as Record<string, unknown>;
+        if (d.tool_name === undefined && d.toolName !== undefined) d.tool_name = d.toolName;
+        if (d.tool_input === undefined && d.toolInput !== undefined) d.tool_input = d.toolInput;
+        if (d.tool_output === undefined && d.toolOutput !== undefined) d.tool_output = d.toolOutput;
+        if (d.userPrompt === undefined && d.prompt !== undefined) d.userPrompt = d.prompt;
+      }
+      const payload: HookPayload = {
+        hookType: normalizeHookType(hookType) as HookPayload["hookType"],
+        sessionId,
+        project,
+        cwd,
+        timestamp,
+        data: rawData,
+      };
+`
+);
+text = text.replace(
+`      await kv.update(KV.sessions, sessionId, [
+        { type: "set", path: "endedAt", value: new Date().toISOString() },
+        { type: "set", path: "status", value: "completed" },
+      ]);
+      return { status_code: 200, body: { success: true } };
+`,
+`      await kv.update(KV.sessions, sessionId, [
+        { type: "set", path: "endedAt", value: new Date().toISOString() },
+        { type: "set", path: "status", value: "completed" },
+      ]);
+      const summary = await sdk.trigger({
+        function_id: "mem::summarize",
+        payload: { sessionId },
+      }).catch(() => null);
+      try {
+        const observations = await kv.list<CompressedObservation>(KV.observations(sessionId));
+        const compressed = observations.filter((o) => o.title);
+        if (compressed.length > 0) {
+          await sdk.trigger({
+            function_id: "mem::graph-extract",
+            payload: { observations: compressed },
+          }).catch(() => null);
+        }
+      } catch {}
+      return { status_code: 200, body: { success: true, summary } };
+`
+);
+fs.writeFileSync('/app/src/triggers/api.ts', text);
+
+text = fs.readFileSync('/app/src/viewer/server.ts', 'utf8');
 text = text.replace(
 `  server.on("error", (err: NodeJS.ErrnoException) => {
 `,
@@ -189,7 +288,7 @@ text = text.replace(
     var VIEWER_BASE = (function() {
       var path = window.location.pathname || '/viewer';
       if (path === '/' || path === '') return '/viewer';
-      return path.replace(/\/+$/, '');
+      return path.replace(/\\/+$/, '');
     })();
     var REST = window.location.origin + VIEWER_BASE;
     var wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -250,7 +349,7 @@ text = text.replace(
 fs.writeFileSync('/app/iii-config.yaml', text);
 NODE
 RUN npm install
-RUN npm run build
+RUN npm run build && cp /app/iii-config.yaml /app/dist/iii-config.yaml
 
 EXPOSE 3111 3113
 
