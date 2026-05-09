@@ -107,9 +107,29 @@ text = text.replace(
 );
 fs.writeFileSync('/app/src/viewer/server.ts', text);
 
+text = fs.readFileSync('/app/src/viewer/index.html', 'utf8');
+text = text.replace(
+`    var params = new URLSearchParams(window.location.search);
+    var viewerPort = params.get('port') || window.location.port || '3113';
+    var iiiPort = parseInt(viewerPort);
+    if (iiiPort === 3111) viewerPort = '3113';
+    var REST = window.location.protocol + '//' + window.location.hostname + ':' + viewerPort;
+    var wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsPort = params.get('wsPort') || String(parseInt(viewerPort) - 1);
+    var WS_URL = wsProto + '//' + window.location.hostname + ':' + wsPort;
+    var WS_DIRECT_URL = wsProto + '//' + window.location.hostname + ':' + wsPort + '/stream/mem-live/viewer';
+`,
+`    var params = new URLSearchParams(window.location.search);
+    var REST = window.location.origin;
+    var wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var WS_URL = wsProto + '//' + window.location.host;
+    var WS_DIRECT_URL = wsProto + '//' + window.location.host + '/stream/mem-live/viewer';
+`
+);
+fs.writeFileSync('/app/src/viewer/index.html', text);
+
 text = fs.readFileSync('/app/iii-config.yaml', 'utf8');
-text = text.replace('host: 127.0.0.1', 'host: 0.0.0.0');
-text = text.replace('host: 127.0.0.1', 'host: 0.0.0.0');
+text = text.replace(/host: 127\.0\.0\.1/g, 'host: 0.0.0.0');
 fs.writeFileSync('/app/iii-config.yaml', text);
 NODE
 RUN npm install
