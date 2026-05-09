@@ -217,6 +217,98 @@ text = text.replace(
 );
 fs.writeFileSync('/app/src/triggers/api.ts', text);
 
+text = fs.readFileSync('/app/src/functions/search.ts', 'utf8');
+text = text.replace(
+`      const obsResults = await Promise.all(
+        candidates.map((r) =>
+          kv.get<CompressedObservation>(KV.observations(r.sessionId), r.obsId)
+        )
+      )
+`,
+`      const obsResults = await Promise.all(
+        candidates.map(async (r) => {
+          if (r.sessionId === "memory") {
+            const memory = await kv.get<Memory>(KV.memories, r.obsId).catch(() => null)
+            return memory && memory.isLatest !== false ? memoryAsIndexable(memory) : null
+          }
+          return kv.get<CompressedObservation>(KV.observations(r.sessionId), r.obsId)
+        })
+      )
+`
+);
+fs.writeFileSync('/app/src/functions/search.ts', text);
+
+text = fs.readFileSync('/app/src/state/hybrid-search.ts', 'utf8');
+text = text.replace(
+`    const observations = await Promise.all(
+      sliced.map((r) =>
+        this.kv
+          .get<CompressedObservation>(KV.observations(r.sessionId), r.obsId)
+          .catch(() => null),
+      ),
+    );
+`,
+`    const observations = await Promise.all(
+      sliced.map(async (r) => {
+        if (r.sessionId === "memory") {
+          const memory = await this.kv.get<any>(KV.memories, r.obsId).catch(() => null);
+          if (!memory || memory.isLatest === false) return null;
+          return {
+            id: memory.id,
+            sessionId: memory.sessionIds?.[0] ?? "memory",
+            timestamp: memory.createdAt,
+            type: "decision",
+            title: memory.title,
+            facts: [memory.content],
+            narrative: memory.content,
+            concepts: memory.concepts || [],
+            files: memory.files || [],
+            importance: memory.strength,
+          } as CompressedObservation;
+        }
+        return this.kv
+          .get<CompressedObservation>(KV.observations(r.sessionId), r.obsId)
+          .catch(() => null);
+      }),
+    );
+`
+);
+fs.writeFileSync('/app/src/state/hybrid-search.ts', text);
+
+text = fs.readFileSync('/app/src/functions/smart-search.ts', 'utf8');
+text = text.replace(
+`  if (sessionIdHint) {
+    const obs = await kv
+      .get<CompressedObservation>(KV.observations(sessionIdHint), obsId)
+      .catch(() => null);
+    if (obs) return obs;
+  }
+`,
+`  if (sessionIdHint === "memory") {
+    const memory = await kv.get<any>(KV.memories, obsId).catch(() => null);
+    if (memory && memory.isLatest !== false) return {
+      id: memory.id,
+      sessionId: memory.sessionIds?.[0] ?? "memory",
+      timestamp: memory.createdAt,
+      type: "decision",
+      title: memory.title,
+      facts: [memory.content],
+      narrative: memory.content,
+      concepts: memory.concepts || [],
+      files: memory.files || [],
+      importance: memory.strength,
+    } as CompressedObservation;
+  }
+  if (sessionIdHint) {
+    const obs = await kv
+      .get<CompressedObservation>(KV.observations(sessionIdHint), obsId)
+      .catch(() => null);
+    if (obs) return obs;
+  }
+`
+);
+fs.writeFileSync('/app/src/functions/smart-search.ts', text);
+
 text = fs.readFileSync('/app/src/viewer/server.ts', 'utf8');
 text = text.replace(
 `  server.on("error", (err: NodeJS.ErrnoException) => {
