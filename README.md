@@ -1,101 +1,107 @@
 # agentmemory-stack
 
-Dockerized `agentmemory` setup prepared for self-hosting.
+Upstream-native `agentmemory` stack for self-hosting.
 
 ## What this includes
 
-- Host-accessible REST API on `3111`
-- Host-accessible viewer on `3113`
-- Local embedding provider
-- LLM-backed auto-compression enabled
-- Graph extraction and consolidation enabled
-- Docker build patch for OpenAI-compatible proxy deployments
+- REST API on `3111`
+- stream service on `3112`
+- viewer/admin panel on `3113`
+- persistent `/data` volume
+- pinned upstream `iii` engine runtime
+- no source patching during build
 
-## Why the Docker image is patched
+## Why this shape
 
-Upstream `agentmemory` currently assumes the built-in OpenRouter endpoint in a few places. This stack patches the cloned source during Docker build so it can work with an OpenAI-compatible proxy/base URL.
+Old stack cloned upstream source during Docker build and rewrote files with exact-string patches. Upstream updates changed those files, patches drifted, and behavior broke silently.
 
-The patch does three things:
+This stack now follows upstream runtime pattern instead:
 
-- allows `OPENAI_API_KEY` to satisfy OpenRouter-style provider auth
-- allows custom `OPENROUTER_BASE_URL`
-- forces `stream: false` for compression requests so nonstandard SSE proxy responses do not break JSON parsing
+- run pinned `iiidev/iii` image
+- mount repo-owned `iii-config.docker.yaml`
+- keep config in `.env`
+- update by bumping version pin, not rebuilding patched source
 
 ## Files
 
-- `Dockerfile` — builds and patches upstream `agentmemory`
-- `docker-compose.yml` — runtime wiring and host port publishing
+- `docker-compose.yml` — upstream-style runtime wiring
+- `iii-config.docker.yaml` — engine config mounted into container
 - `.env.example` — example environment values
 
 ## Setup
 
-1. Copy the example env file:
+1. Copy example env file:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` with your real values.
+2. Edit `.env` with real values.
 
-3. Start the stack:
+3. Start stack:
 
 ```bash
-docker compose up --build -d
+docker compose up -d
 ```
 
 4. Check logs:
 
 ```bash
-docker compose logs -f
+docker compose logs --no-color --tail=200
 ```
 
 ## Endpoints
 
-- API health:
+### Health
 
 ```bash
 curl -H 'Authorization: Bearer YOUR_SECRET' \
   http://localhost:3111/agentmemory/health
 ```
 
-- Feature flags:
+### Feature flags
 
 ```bash
 curl -H 'Authorization: Bearer YOUR_SECRET' \
   http://localhost:3111/agentmemory/config/flags
 ```
 
-- Viewer:
+### Viewer / admin panel
 
-```bash
+Open:
+
+```text
 http://localhost:3113/viewer
 ```
 
-## Server deployment notes
+## Version updates
 
-- open TCP ports `3111` and `3113` on your server if accessed directly
-- if using Nginx/Caddy, proxy those ports to the container host
-- keep `.env` out of git
-- rotate `AGENTMEMORY_SECRET` and API keys before production use
+Bump engine version in `.env`:
 
-## Current known caveats
+```env
+AGENTMEMORY_III_VERSION=0.11.2
+```
 
-- search/delete semantics in upstream `agentmemory` may still need additional fixes unrelated to the compression fix
-- search/delete semantics in upstream `agentmemory` may still need additional fixes unrelated to the compression fix
-
-## Port mapping
-
-This stack now binds directly on matching host/container ports:
-
-- `3111:3111` for the REST API
-- `3113:3113` for the viewer
-
-The Docker build patches upstream bind addresses to `0.0.0.0` so no `socat` forwarding layer is needed.
-
-## Update workflow
-
-When you pull changes later, rebuild the image so the source patch is re-applied:
+Then restart:
 
 ```bash
-docker compose up --build -d
+docker compose up -d
 ```
+
+Smoke test after each update:
+
+```bash
+docker compose config
+curl -H 'Authorization: Bearer YOUR_SECRET' http://localhost:3111/agentmemory/health
+curl -H 'Authorization: Bearer YOUR_SECRET' http://localhost:3111/agentmemory/config/flags
+```
+
+Then open `http://localhost:3113/viewer` and confirm dashboard loads.
+
+## Notes
+
+- Stack now uses upstream-native provider behavior only.
+- Old OpenAI-compatible proxy patch behavior was removed.
+- `3111`, `3112`, `3113`, and `9464` are bound to `127.0.0.1` by default.
+- Keep `.env` out of git.
+- Rotate `AGENTMEMORY_SECRET` and provider keys before production use.
