@@ -10,6 +10,7 @@ Upstream-native `agentmemory` stack for self-hosting.
 - persistent `/data` volume
 - pinned upstream `iii` engine runtime
 - no source patching during build
+- compatible with repo-root Dockerfile deploy platforms like EasyPanel
 
 ## Why this shape
 
@@ -24,8 +25,10 @@ This stack now follows upstream runtime pattern instead:
 
 ## Files
 
-- `docker-compose.yml` — upstream-style runtime wiring
-- `iii-config.docker.yaml` — engine config mounted into container
+- `docker-compose.yml` — upstream-style runtime wiring for local Docker Compose
+- `iii-config.docker.yaml` — engine config mounted into compose container
+- `Dockerfile` — upstream-native managed-host build path for EasyPanel/Coolify-style docker builds
+- `entrypoint.sh` — first-boot runtime setup for managed-host Docker builds
 - `.env.example` — example environment values
 
 ## Setup
